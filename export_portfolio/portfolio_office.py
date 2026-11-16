@@ -11,11 +11,13 @@ from export_portfolio.board.portfolio_book import export_bundle, verify_bundle
 from export_portfolio.optimization.constrained_selection import derive_context
 
 from export_portfolio.governance.resource_book import ResourceBook
+from export_portfolio.board.review_board import ReviewBoard
 
 class Application:
     def __init__(self, database: str | Path, context: Mapping[str, Any] | None = None):
         self.repository = Repository(database)
         self.resource_book = ResourceBook(self.repository)
+        self.review_board = ReviewBoard(self.repository, self.resource_book)
         self.context = dict(context or {})
 
     def ingest(self, record: DomainRecord) -> DomainRecord:

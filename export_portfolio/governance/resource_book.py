@@ -59,4 +59,4 @@ class ResourceBook:
         with self.repository.connect() as c:
             resources=[dict(r) for r in c.execute("SELECT * FROM delivery_resources ORDER BY resource_id")]
             for r in resources:r['available']=r['capacity']-c.execute("SELECT COALESCE(SUM(units),0) FROM resource_allocations WHERE resource_id=?",(r['resource_id'],)).fetchone()[0]
-            return {'resources':resources,'approvals':[dict(r) for r in c.execute("SELECT * FROM resource_approvals ORDER BY approval_id")],'requirements':[dict(r) for r in c.execute("SELECT * FROM project_requirements ORDER BY project_id,resource_id")]}
+            return {'resources':resources,'approvals':[dict(r) for r in c.execute("SELECT * FROM resource_approvals ORDER BY approval_id")],'requirements':[dict(r) for r in c.execute("SELECT * FROM project_requirements ORDER BY project_id,resource_id")],'allocations':[dict(r) for r in c.execute("SELECT * FROM resource_allocations ORDER BY approval_id,resource_id")]}

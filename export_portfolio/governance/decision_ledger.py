@@ -143,24 +143,28 @@ class Repository:
             raise ContractError("conflicting event replay") from None
         return event_hash
 
+    def store_record(self, connection: sqlite3.Connection, record: DomainRecord,
+                     expected_version: int | None = None) -> str:
+        current = connection.execute("SELECT version,fingerprint FROM records WHERE record_id=?", (record.record_id,)).fetchone()
+        if current and expected_version is not None and current[0] != expected_version:
+            raise ContractError("optimistic version conflict")
+        if current and current[1] == record.fingerprint:
+            return record.fingerprint
+        if current and record.version <= current[0]:
+            raise ContractError("record version must advance")
+        payload = canonical_json(record.payload)
+        connection.execute("INSERT INTO records(record_id,version,state,payload_json,fingerprint,occurred_at,source,updated_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(record_id) DO UPDATE SET version=excluded.version,state=excluded.state,payload_json=excluded.payload_json,fingerprint=excluded.fingerprint,occurred_at=excluded.occurred_at,source=excluded.source,updated_at=excluded.updated_at",
+                           (record.record_id, record.version, record.state, payload, record.fingerprint,
+                            record.occurred_at, record.source, utc_now()))
+        connection.execute("INSERT INTO record_versions(record_id,version,state,payload_json,fingerprint,stored_at) VALUES(?,?,?,?,?,?)",
+                           (record.record_id, record.version, record.state, payload, record.fingerprint, utc_now()))
+        self.append_event(connection, "record.saved", record.record_id, record.version,
+                          {"state": record.state, "fingerprint": record.fingerprint})
+        return record.fingerprint
+
     def save_record(self, record: DomainRecord, expected_version: int | None = None) -> str:
         with self.transaction() as connection:
-            current = connection.execute("SELECT version,fingerprint FROM records WHERE record_id=?", (record.record_id,)).fetchone()
-            if current and expected_version is not None and current[0] != expected_version:
-                raise ContractError("optimistic version conflict")
-            if current and current[1] == record.fingerprint:
-                return record.fingerprint
-            if current and record.version <= current[0]:
-                raise ContractError("record version must advance")
-            payload = canonical_json(record.payload)
-            connection.execute("INSERT INTO records(record_id,version,state,payload_json,fingerprint,occurred_at,source,updated_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(record_id) DO UPDATE SET version=excluded.version,state=excluded.state,payload_json=excluded.payload_json,fingerprint=excluded.fingerprint,occurred_at=excluded.occurred_at,source=excluded.source,updated_at=excluded.updated_at",
-                               (record.record_id, record.version, record.state, payload, record.fingerprint,
-                                record.occurred_at, record.source, utc_now()))
-            connection.execute("INSERT INTO record_versions(record_id,version,state,payload_json,fingerprint,stored_at) VALUES(?,?,?,?,?,?)",
-                               (record.record_id, record.version, record.state, payload, record.fingerprint, utc_now()))
-            self.append_event(connection, "record.saved", record.record_id, record.version,
-                              {"state": record.state, "fingerprint": record.fingerprint})
-            return record.fingerprint
+            return self.store_record(connection, record, expected_version)
 
     def get_record(self, record_id: str) -> DomainRecord | None:
         with self.connect() as connection:
